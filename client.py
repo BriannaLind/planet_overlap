@@ -12,125 +12,65 @@ This script:
 Supports multiple AOIs and multiple date ranges.
 """
 
-import os
+# client.py
 import logging
-from typing import List
+from typing import List, Optional, Tuple
+from planet_overlap.filters import build_filters
+from planet_overlap.geometry import load_aoi
 
-from planet_overlap import filters, pagination, analysis, geometry
+logging.basicConfig(level=logging.INFO)
 
-# Configure logging for progress tracking
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
-)
+
+def prepare_filters(
+    geojson_paths: List[str],
+    date_ranges: List[Tuple[str, str]]
+) -> dict:
+    """
+    Build filters for multiple AOIs and date ranges.
+    
+    Args:
+        geojson_paths: List of file paths to AOI geojsons.
+        date_ranges: List of (start_date, end_date) tuples.
+    
+    Returns:
+        Dictionary containing combined filters.
+    """
+    filters = build_filters(geojson_paths, date_ranges)
+    logging.info("Filters prepared for %d AOIs/date ranges", len(filters.get("config", [])))
+    return filters
+
+
+def load_aois(geojson_paths: List[str]):
+    """
+    Load AOIs from GeoJSON files.
+    
+    Args:
+        geojson_paths: List of AOI geojson paths.
+    
+    Returns:
+        List of AOI geometries.
+    """
+    aois = [load_aoi(path) for path in geojson_paths]
+    logging.info("Loaded %d AOIs", len(aois))
+    return aois
 
 
 def run_client(
-    aoi_files: List[str],
-    start_dates: List[str],
-    end_dates: List[str],
-    output_dir: str = "./outputs",
-    cloud_max: float = 0.5,
-    min_sun_angle: float = 0.0,
-    spatial_tile_threshold_km2: float = 10000,
-    temporal_tile_threshold_days: int = 30,
-) -> None:
+    geojson_paths: List[str],
+    date_ranges: List[Tuple[str, str]]
+):
     """
-    Main function to execute Planet Overlap workflow.
-
-    Parameters
-    ----------
-    aoi_files : List[str]
-        Paths to one or more AOI GeoJSON files.
-    start_dates : List[str]
-        Start dates corresponding to each AOI (format 'YYYY-MM-DD').
-    end_dates : List[str]
-        End dates corresponding to each AOI (format 'YYYY-MM-DD').
-    output_dir : str
-        Directory where output files will be saved.
-    cloud_max : float
-        Maximum cloud cover allowed (0-1).
-    min_sun_angle : float
-        Minimum sun angle allowed in degrees.
-    spatial_tile_threshold_km2 : float
-        Max AOI area before spatial tiling is applied.
-    temporal_tile_threshold_days : int
-        Max date range before temporal tiling is applied.
+    Full client workflow: load AOIs, prepare filters, and return filters + AOIs.
+    
+    Args:
+        geojson_paths: List of AOI GeoJSON paths.
+        date_ranges: List of (start_date, end_date) tuples.
+    
+    Returns:
+        Tuple of (filters dict, list of AOI geometries)
     """
-
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        logging.info(f"Created output directory: {output_dir}")
-
-    # Read and buffer AOIs
-    logging.info("Reading AOIs...")
-    aois = []
-    for file in aoi_files:
-        try:
-            aoi_geom = geometry.read_geojson(file)
-            buffered_aoi = geometry.buffer_points(aoi_geom)
-            aois.append(buffered_aoi)
-        except Exception as e:
-            logging.error(f"Failed to read or buffer AOI {file}: {e}")
-            continue
-
-    # Loop through each AOI and date range
-    for i, aoi in enumerate(aois):
-        start = start_dates[i]
-        end = end_dates[i]
-
-        logging.info(f"Processing AOI {i+1}/{len(aois)}: {file}, {start} to {end}")
-
-        # Build filters
-        geo_filter = filters.geometry_filter(aoi)
-        date_filter = filters.date_filter(start, end)
-        cloud_filter = filters.cloud_filter(cloud_max)
-        sun_filter = filters.sun_angle_filter(min_sun_angle)
-
-        combined_filter = filters.combine_filters(
-            [geo_filter, date_filter, cloud_filter, sun_filter]
-        )
-
-        # Determine if tiling is needed
-        area_km2 = geometry.compute_area_km2(aoi)
-        date_range_days = filters.compute_date_range_days(start, end)
-
-        spatial_tiles = [aoi]
-        temporal_tiles = [(start, end)]
-
-        if area_km2 > spatial_tile_threshold_km2:
-            spatial_tiles = geometry.spatial_tile(aoi)
-            logging.info(
-                "AOI exceeds %d km², applying spatial tiling: %d tiles",
-                spatial_tile_threshold_km2,
-                len(spatial_tiles),
-            )
-
-        if date_range_days > temporal_tile_threshold_days:
-            temporal_tiles = filters.temporal_tile(start, end)
-            logging.info(
-                "Date range exceeds %d days, applying temporal tiling: %d intervals",
-            temporal_tile_threshold_days,
-            len(temporal_tiles)
-            )
-
-        # Fetch imagery and analyze for each tile
-        for s_tile in spatial_tiles:
-            for t_start, t_end in temporal_tiles:
-                logging.info(
-                    f"Fetching imagery for tile and date range: {t_start} to {t_end}"
-                )
-                try:
-                    items = pagination.fetch_items(
-                        geometry=s_tile,
-                        start_date=t_start,
-                        end_date=t_end,
-                        cloud_max=cloud_max,
-                    )
-                    analysis_results = analysis.compute_overlap(items, min_sun_angle)
-                    analysis.save_results(analysis_results, output_dir)
-                    logging.info(f"Saved results for tile ({t_start}-{t_end})")
-                except Exception as e:
-                    logging.error(f"Failed processing tile/date {t_start}-{t_end}: {e}")
-                    continue
-
-    logging.info("Planet Overlap workflow completed successfully.")
+    aois = load_aois(geojson_paths)
+    filters = prepare_filters(geojson_paths, date_ranges)
+    # Use filters downstream; previously 'combined_filter' was unused
+    logging.info("Client run complete")
+    return filters, aois
