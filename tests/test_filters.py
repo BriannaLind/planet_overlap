@@ -1,7 +1,8 @@
 from planet_overlap.filters import build_filters
 
 
-def test_single_geojson_and_date():
+def test_single_geojson_and_single_date():
+    """Test a single AOI with a single date."""
     geojson_path = "tests/data/sample_aoi.geojson"
     start_date = "2023-01-01"
     end_date = "2023-01-01"
