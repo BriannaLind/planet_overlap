@@ -41,4 +41,5 @@ jobs:
       # 6️⃣ Run tests
       - name: Run tests
         run: |
-          poetry run pytest planet_overlap/tests --maxfail=1 --disable-warnings -q
+          export PATH="$HOME/.local/bin:$PATH"
+          poetry run pytest tests --maxfail=1 --disable-warnings -q
