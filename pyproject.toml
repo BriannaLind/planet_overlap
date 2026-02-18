@@ -1,0 +1,39 @@
+[tool.poetry]
+name = "planet_overlap"
+version = "0.1.0"
+description = "PlanetScope imagery query, filtering, and analysis pipeline with smart tiling."
+authors = ["<your_email@example.com>"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/yourusername/planet_overlap"
+repository = "https://github.com/yourusername/planet_overlap"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+geopandas = "^1.2"
+shapely = "^2.0"
+numpy = "^1.25"
+pandas = "^2.0"
+requests = "^2.31"
+tqdm = "^4.66"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.4"
+pytest-cov = "^4.1"
+mypy = "^1.5"
+black = "^24.10"
+isort = "^6.0"
+pre-commit = "^3.0"
+
+[tool.planet_overlap.defaults]
+# Default configurable thresholds
+output_dir = "/gpfs/scratch/personname/workspace/planet/"
+max_cloud = 0.5                 # Fractional (50%)
+min_sun_angle = 8               # Degrees
+tile_size_deg = 1.0             # Decimal degrees
+point_buffer_deg = 0.001        # ~100 m buffer for points
+scene_threshold = 2000          # Estimated scene count triggering temporal tiling
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
