@@ -11,7 +11,7 @@ documentation = "https://github.com/BriannaLind/PlanetOverlap"
 keywords = ["planet", "imagery", "satellite", "geospatial", "analysis"]
 
 [tool.poetry.dependencies]
-python = "^3.10, ^3.11"
+python = "^3.10, <4.0"
 requests = "^2.31"
 geopandas = "1.1.2"
 shapely = "^2.0"
@@ -20,10 +20,11 @@ pandas = "^2.0"
 tqdm = "^4.66"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^7.4"
-memory-profiler = "^0.61"
+pytest = "^7.3"
 flake8 = "^6.1"
+black = "^24.0"
+memory-profiler = "^1.0"
 
 [build-system]
-requires = ["poetry-core>=1.6.0"]
+requires = ["poetry-core>=1.5.1"]
 build-backend = "poetry.core.masonry.api"
