@@ -1,30 +1,29 @@
 [tool.poetry]
 name = "planet_overlap"
-version = "0.1.0"
-description = "Automated PlanetScope imagery processing for multiple AOIs and date ranges"
-authors = ["Hankui Zhang <email@example.com>"]
-packages = [{include = "planet_overlap"}]
+version = "0.2.0"
+description = "Automated PlanetScope imagery processing with tiling, pagination, and analysis"
+authors = ["Brianna Lind <your-email@example.com>"]
+readme = "README.md"
+license = "MIT"
+homepage = "https://github.com/BriannaLind/PlanetOverlap"
+repository = "https://github.com/BriannaLind/PlanetOverlap"
+documentation = "https://github.com/BriannaLind/PlanetOverlap"
+keywords = ["planet", "imagery", "satellite", "geospatial", "analysis"]
 
 [tool.poetry.dependencies]
 python = "^3.11"
-geopandas = "^1.2"
+requests = "^2.31"
+geopandas = "^1.4"
 shapely = "^2.0"
 numpy = "^1.24"
-requests = "^2.31"
-pandas = "^2.0"
+pandas = "^2.1"
+tqdm = "^4.66"
 
-[tool.poetry.dev-dependencies]
-pytest = "^7.3"
-pytest-cov = "^4.1"
-
-[tool.poetry.scripts]
-planet-client = "planet_overlap.client:run_client"
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4"
+memory-profiler = "^0.61"
+flake8 = "^6.1"
 
 [build-system]
-requires = ["poetry-core>=1.3.2"]
+requires = ["poetry-core>=1.6.0"]
 build-backend = "poetry.core.masonry.api"
-
-[tool.pytest.ini_options]
-minversion = "7.0"
-addopts = "--cov=planet_overlap --cov-report=term-missing"
-testpaths = ["tests"]
