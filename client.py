@@ -1,150 +1,126 @@
 """
-cli.py
-Command-line interface for planet_overlap.
-Allows flexible AOI and date inputs, dynamic filters, and output configuration.
+client.py - Entry point for running Planet Overlap analysis.
+
+This script:
+1. Reads AOI GeoJSON files.
+2. Applies filters (geometry, date, cloud cover, sun angle).
+3. Handles spatial and temporal tiling automatically.
+4. Calls pagination module to fetch imagery.
+5. Calls analysis module to compute overlaps and sun angles.
+6. Stores output to configurable directory.
+
+Supports multiple AOIs and multiple date ranges.
 """
 
-import argparse
-from pathlib import Path
-from datetime import datetime
-from planet_overlap import geometry, pagination, filters
+import os
+import logging
+from typing import List, Optional
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="planet_overlap: Download and analyze PlanetScope imagery for specified AOIs and dates."
-    )
+from planet_overlap import filters, pagination, analysis, geometry
 
-    # AOI input
-    parser.add_argument(
-        "--aoi",
-        nargs="+",
-        required=True,
-        help="Paths to AOI GeoJSON files or points (lon,lat) separated by space"
-    )
+# Configure logging for progress tracking
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
-    # Date inputs
-    parser.add_argument(
-        "--dates",
-        nargs="+",
-        required=True,
-        help=(
-            "Dates or date ranges. "
-            "Single date: 2023-06-21 "
-            "Range: 2023-06-01:2023-06-30 "
-            "Multiple: 2023-06-01:2023-06-15 2023-07-01:2023-07-15"
+def run_client(
+    aoi_files: List[str],
+    start_dates: List[str],
+    end_dates: List[str],
+    output_dir: str = "./outputs",
+    cloud_max: float = 0.5,
+    min_sun_angle: float = 0.0,
+    spatial_tile_threshold_km2: float = 10000,
+    temporal_tile_threshold_days: int = 30
+) -> None:
+    """
+    Main function to execute Planet Overlap workflow.
+
+    Parameters
+    ----------
+    aoi_files : List[str]
+        Paths to one or more AOI GeoJSON files.
+    start_dates : List[str]
+        Start dates corresponding to each AOI (format 'YYYY-MM-DD').
+    end_dates : List[str]
+        End dates corresponding to each AOI (format 'YYYY-MM-DD').
+    output_dir : str
+        Directory where output files will be saved.
+    cloud_max : float
+        Maximum cloud cover allowed (0-1).
+    min_sun_angle : float
+        Minimum sun angle allowed in degrees.
+    spatial_tile_threshold_km2 : float
+        Max AOI area before spatial tiling is applied.
+    temporal_tile_threshold_days : int
+        Max date range before temporal tiling is applied.
+    """
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        logging.info(f"Created output directory: {output_dir}")
+
+    # Read and buffer AOIs
+    logging.info("Reading AOIs...")
+    aois = []
+    for file in aoi_files:
+        try:
+            aoi_geom = geometry.read_geojson(file)
+            buffered_aoi = geometry.buffer_points(aoi_geom)
+            aois.append(buffered_aoi)
+        except Exception as e:
+            logging.error(f"Failed to read or buffer AOI {file}: {e}")
+            continue
+
+    # Loop through each AOI and date range
+    for i, aoi in enumerate(aois):
+        start = start_dates[i]
+        end = end_dates[i]
+
+        logging.info(f"Processing AOI {i+1}/{len(aois)}: {file}, {start} to {end}")
+
+        # Build filters
+        geo_filter = filters.geometry_filter(aoi)
+        date_filter = filters.date_filter(start, end)
+        cloud_filter = filters.cloud_filter(cloud_max)
+        sun_filter = filters.sun_angle_filter(min_sun_angle)
+
+        combined_filter = filters.combine_filters(
+            [geo_filter, date_filter, cloud_filter, sun_filter]
         )
-    )
 
-    # Output directory
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default="./planet_output",
-        help="Directory to save outputs"
-    )
+        # Determine if tiling is needed
+        area_km2 = geometry.compute_area_km2(aoi)
+        date_range_days = filters.compute_date_range_days(start, end)
 
-    # Quality settings
-    parser.add_argument(
-        "--max-cloud",
-        type=float,
-        default=0.5,
-        help="Maximum cloud cover fraction (0.0-1.0)"
-    )
+        spatial_tiles = [aoi]
+        temporal_tiles = [(start, end)]
 
-    parser.add_argument(
-        "--min-sun-angle",
-        type=float,
-        default=0.0,
-        help="Minimum sun angle (degrees)"
-    )
+        if area_km2 > spatial_tile_threshold_km2:
+            spatial_tiles = geometry.spatial_tile(aoi)
+            logging.info(f"AOI exceeds {spatial_tile_threshold_km2} km², applying spatial tiling: {len(spatial_tiles)} tiles")
 
-    # Optional buffer for point AOIs
-    parser.add_argument(
-        "--point-buffer",
-        type=float,
-        default=0.01,
-        help="Buffer radius for point AOIs in degrees (~1km default)"
-    )
+        if date_range_days > temporal_tile_threshold_days:
+            temporal_tiles = filters.temporal_tile(start, end)
+            logging.info(f"Date range exceeds {temporal_tile_threshold_days} days, applying temporal tiling: {len(temporal_tiles)} intervals")
 
-    return parser.parse_args()
+        # Fetch imagery and analyze for each tile
+        for s_tile in spatial_tiles:
+            for t_start, t_end in temporal_tiles:
+                logging.info(f"Fetching imagery for tile and date range: {t_start} to {t_end}")
+                try:
+                    items = pagination.fetch_items(
+                        geometry=s_tile,
+                        start_date=t_start,
+                        end_date=t_end,
+                        cloud_max=cloud_max
+                    )
+                    analysis_results = analysis.compute_overlap(items, min_sun_angle)
+                    analysis.save_results(analysis_results, output_dir)
+                    logging.info(f"Saved results for tile ({t_start}-{t_end})")
+                except Exception as e:
+                    logging.error(f"Failed processing tile/date {t_start}-{t_end}: {e}")
+                    continue
 
-
-def parse_date_input(date_strings):
-    """
-    Converts CLI date inputs into (start, end) tuples.
-    Handles single dates, ranges, and multiple ranges.
-    """
-    ranges = []
-    for ds in date_strings:
-        if ":" in ds:
-            start_str, end_str = ds.split(":")
-            start = datetime.strptime(start_str, "%Y-%m-%d")
-            end = datetime.strptime(end_str, "%Y-%m-%d")
-        else:
-            start = end = datetime.strptime(ds, "%Y-%m-%d")
-        ranges.append((start, end))
-    return ranges
-
-
-def prepare_aois(aoi_inputs, point_buffer=0.01):
-    """
-    Load AOIs and buffer points if needed.
-    """
-    polygons = []
-    geojson_paths = []
-    points = []
-
-    for item in aoi_inputs:
-        if "," in item:  # assume lon,lat
-            lon, lat = map(float, item.split(","))
-            points.append(geometry.Point(lon, lat))
-        else:
-            geojson_paths.append(item)
-
-    # Load polygons from files
-    if geojson_paths:
-        polygons.extend(geometry.load_aoi(geojson_paths))
-
-    # Buffer points
-    if points:
-        polygons.extend(geometry.buffer_points(points, buffer_deg=point_buffer))
-
-    # Merge all AOIs into a single polygon
-    final_aoi = geometry.unify_aois(polygons)
-    return final_aoi
-
-
-def main():
-    args = parse_args()
-
-    # Ensure output directory exists
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Prepare AOIs
-    final_aoi = prepare_aois(args.aoi, point_buffer=args.point_buffer)
-
-    # Parse dates
-    date_ranges = parse_date_input(args.dates)
-
-    # Log configuration
-    print(f"Output directory: {output_dir}")
-    print(f"Max cloud: {args.max_cloud}, Min sun angle: {args.min_sun_angle}")
-    print(f"AOI area (deg²): {final_aoi.area}")
-    print(f"Date ranges: {date_ranges}")
-
-    # Determine if tiling is needed
-    total_days = sum((end - start).days + 1 for start, end in date_ranges)
-    spatial_tile, temporal_tile = pagination.should_tile(final_aoi.area, total_days)
-    print(f"Spatial tiling: {spatial_tile}, Temporal tiling: {temporal_tile}")
-
-    # Build filters dynamically
-    search_filters = filters.build_filters([final_aoi], date_ranges,
-                                           max_cloud=args.max_cloud,
-                                           min_sun_angle=args.min_sun_angle)
-
-    print("Filters prepared and ready for pagination and analysis.")
-
-
-if __name__ == "__main__":
-    main()
+    logging.info("Planet Overlap workflow completed successfully.")
